@@ -51,6 +51,7 @@ use std::{
 use crate::util::KernelVersion;
 use libc::{getrlimit, rlimit, RLIMIT_MEMLOCK, RLIM_INFINITY};
 use log::warn;
+use obj::maps::InvalidMapTypeError;
 use thiserror::Error;
 
 use crate::{
@@ -70,6 +71,7 @@ pub mod hash_map;
 pub mod lpm_trie;
 pub mod perf;
 pub mod queue;
+pub mod ring_buf;
 pub mod sock;
 pub mod stack;
 pub mod stack_trace;
@@ -83,6 +85,7 @@ pub use lpm_trie::LpmTrie;
 pub use perf::AsyncPerfEventArray;
 pub use perf::PerfEventArray;
 pub use queue::Queue;
+pub use ring_buf::RingBuf;
 pub use sock::{SockHash, SockMap};
 pub use stack::Stack;
 pub use stack_trace::StackTraceMap;
@@ -188,6 +191,16 @@ pub enum MapError {
     },
 }
 
+// Note that this is not just derived using #[from] because InvalidMapTypeError cannot implement
+// Error due the the fact that aya-obj is no_std and error_in_core is not stabilized
+// (https://github.com/rust-lang/rust/issues/103765).
+impl From<InvalidMapTypeError> for MapError {
+    fn from(e: InvalidMapTypeError) -> Self {
+        let InvalidMapTypeError { map_type } = e;
+        MapError::InvalidMapType { map_type }
+    }
+}
+
 /// A map file descriptor.
 pub struct MapFd(RawFd);
 
@@ -251,6 +264,8 @@ pub enum Map {
     PerCpuLruHashMap(MapData),
     /// A [`PerfEventArray`] map
     PerfEventArray(MapData),
+    /// A [`RingBuf`] map
+    RingBuf(MapData),
     /// A [`SockMap`] map
     SockMap(MapData),
     /// A [`SockHash`] map
@@ -281,6 +296,7 @@ impl Map {
             Map::PerCpuHashMap(map) => map.obj.map_type(),
             Map::PerCpuLruHashMap(map) => map.obj.map_type(),
             Map::PerfEventArray(map) => map.obj.map_type(),
+            Map::RingBuf(map) => map.obj.map_type(),
             Map::SockHash(map) => map.obj.map_type(),
             Map::SockMap(map) => map.obj.map_type(),
             Map::BloomFilter(map) => map.obj.map_type(),
@@ -343,6 +359,7 @@ impl_try_from_map!(
     SockMap from Map::SockMap,
     PerfEventArray from Map::PerfEventArray,
     StackTraceMap from Map::StackTraceMap,
+    RingBuf from Map::RingBuf,
 );
 
 #[cfg(any(feature = "async_tokio", feature = "async_std"))]
